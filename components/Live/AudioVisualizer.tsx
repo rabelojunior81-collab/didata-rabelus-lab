@@ -24,7 +24,6 @@ const AudioVisualizer: React.FC<AudioVisualizerProps> = ({
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    // Set canvas size
     const resize = () => {
       canvas.width = canvas.clientWidth * window.devicePixelRatio;
       canvas.height = canvas.clientHeight * window.devicePixelRatio;
@@ -42,78 +41,72 @@ const AudioVisualizer: React.FC<AudioVisualizerProps> = ({
       const centerY = height / 2;
 
       ctx.clearRect(0, 0, width, height);
-      
-      // Global composite operation for glow effect
       ctx.globalCompositeOperation = 'screen';
 
       time += 0.05;
 
-      // Base visualizer state logic
       let activeVolume = 0;
-      let baseColor = { r: 100, g: 116, b: 139 }; // Slate 500 (Idle)
+      let baseColor = { r: 50, g: 70, b: 100 }; // Darker, more rigid base
 
       if (state === 'connecting') {
-        baseColor = { r: 255, g: 255, b: 255 }; // White pulsing
-        activeVolume = (Math.sin(time) + 1) * 0.2; // Auto pulse
+        baseColor = { r: 255, g: 255, b: 255 };
+        activeVolume = (Math.sin(time) + 1) * 0.15;
       } else if (state === 'error') {
-        baseColor = { r: 239, g: 68, b: 68 }; // Red
-        activeVolume = 0.1;
+        baseColor = { r: 239, g: 68, b: 68 };
+        activeVolume = 0.05;
       } else if (isUserSpeaking) {
-        baseColor = { r: 16, g: 185, b: 129 }; // Emerald (User)
+        baseColor = { r: 16, g: 185, b: 129 };
         activeVolume = userVolume;
       } else if (isAiSpeaking) {
-        baseColor = { r: 14, g: 165, b: 233 }; // Sky Blue (AI)
+        baseColor = { r: 14, g: 165, b: 233 };
         activeVolume = aiVolume;
       } else if (state === 'connected') {
-        baseColor = { r: 56, g: 189, b: 248 }; // Light Blue Idle
-        activeVolume = 0.05 + (Math.sin(time * 0.5) * 0.02); // Gentle breathing
+        baseColor = { r: 56, g: 189, b: 248 };
+        activeVolume = 0.03 + (Math.sin(time * 0.4) * 0.01);
       }
 
-      // Clamp volume for visuals
-      const intensity = Math.min(1, Math.max(0.05, activeVolume));
-      const numRings = 3 + Math.floor(intensity * 5);
+      const intensity = Math.min(1, Math.max(0.02, activeVolume));
+      const numLayers = 4 + Math.floor(intensity * 6);
       
-      // Draw Neural Rings
-      for (let i = 0; i < numRings; i++) {
+      // Draw Geometric Neural Squares (Replacing Rings)
+      for (let i = 0; i < numLayers; i++) {
         ctx.beginPath();
-        
-        const offset = (time * (i + 1) * 0.5) % 100;
-        const baseRadius = 40 + (i * 15);
-        const expansion = intensity * 100 * (Math.sin(time + i) * 0.5 + 0.5); // Reactive expansion
-        const radius = baseRadius + expansion;
+        const baseSize = 60 + (i * 25);
+        const expansion = intensity * 120 * (Math.sin(time * 0.8 + i) * 0.5 + 0.5);
+        const size = baseSize + expansion;
 
-        ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
+        // Draw Square
+        ctx.rect(centerX - size / 2, centerY - size / 2, size, size);
         
-        const alpha = Math.max(0, 1 - (radius / (Math.min(width, height) / 2)));
-        ctx.strokeStyle = `rgba(${baseColor.r}, ${baseColor.g}, ${baseColor.b}, ${alpha})`;
-        ctx.lineWidth = 2 + (intensity * 4);
+        const alpha = Math.max(0, 1 - (size / (Math.min(width, height) * 0.8)));
+        ctx.strokeStyle = `rgba(${baseColor.r}, ${baseColor.g}, ${baseColor.b}, ${alpha * 0.6})`;
+        ctx.lineWidth = 1 + (intensity * 3);
         ctx.stroke();
       }
 
-      // Draw Core Orb
-      ctx.beginPath();
-      const coreRadius = 30 + (intensity * 20);
-      const gradient = ctx.createRadialGradient(centerX, centerY, 0, centerX, centerY, coreRadius);
-      gradient.addColorStop(0, `rgba(${baseColor.r}, ${baseColor.g}, ${baseColor.b}, 0.8)`);
-      gradient.addColorStop(1, `rgba(${baseColor.r}, ${baseColor.g}, ${baseColor.b}, 0)`);
+      // Draw Core Technical Cube
+      const coreSize = 40 + (intensity * 30);
+      ctx.fillStyle = `rgba(${baseColor.r}, ${baseColor.g}, ${baseColor.b}, ${0.1 + intensity * 0.2})`;
+      ctx.fillRect(centerX - coreSize / 2, centerY - coreSize / 2, coreSize, coreSize);
       
-      ctx.fillStyle = gradient;
-      ctx.arc(centerX, centerY, coreRadius, 0, Math.PI * 2);
-      ctx.fill();
+      // Outer border for core
+      ctx.strokeStyle = `rgba(${baseColor.r}, ${baseColor.g}, ${baseColor.b}, 0.8)`;
+      ctx.lineWidth = 2;
+      ctx.strokeRect(centerX - coreSize / 2, centerY - coreSize / 2, coreSize, coreSize);
 
-      // Draw "Particles" representing neural activity
+      // Technical Geometric Particles
       if (isAiSpeaking || isUserSpeaking) {
-          const particleCount = 8;
+          const particleCount = 12;
           for(let j = 0; j < particleCount; j++) {
-              const angle = (time * 2) + (j * (Math.PI * 2 / particleCount));
-              const orbitRadius = 60 + (intensity * 80);
-              const px = centerX + Math.cos(angle) * orbitRadius;
-              const py = centerY + Math.sin(angle) * orbitRadius;
+              const angle = (time * 1.5) + (j * (Math.PI * 2 / particleCount));
+              const orbitDistance = 80 + (intensity * 100);
+              const px = centerX + Math.cos(angle) * orbitDistance;
+              const py = centerY + Math.sin(angle) * orbitDistance;
               
-              ctx.beginPath();
-              ctx.fillStyle = `rgba(${baseColor.r}, ${baseColor.g}, ${baseColor.b}, 0.6)`;
-              ctx.arc(px, py, 3, 0, Math.PI * 2);
-              ctx.fill();
+              const pSize = 3 + intensity * 6;
+              ctx.fillStyle = `rgba(${baseColor.r}, ${baseColor.g}, ${baseColor.b}, 0.7)`;
+              // Square particles
+              ctx.fillRect(px - pSize/2, py - pSize/2, pSize, pSize);
           }
       }
 
@@ -129,16 +122,16 @@ const AudioVisualizer: React.FC<AudioVisualizerProps> = ({
   }, [isUserSpeaking, isAiSpeaking, userVolume, aiVolume, state]);
 
   return (
-    <div className="w-full h-full flex items-center justify-center relative overflow-hidden">
-       {/* Background Mesh Grid Effect */}
-       <div className="absolute inset-0" 
+    <div className="w-full h-full flex items-center justify-center relative overflow-hidden rounded-none">
+       {/* Geometric Grid Overlay */}
+       <div className="absolute inset-0 rounded-none" 
             style={{
-                backgroundImage: 'radial-gradient(circle at 1px 1px, rgba(255,255,255,0.05) 1px, transparent 0)',
-                backgroundSize: '24px 24px',
-                maskImage: 'radial-gradient(circle at center, black 40%, transparent 100%)'
+                backgroundImage: `linear-gradient(rgba(255,255,255,0.03) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.03) 1px, transparent 1px)`,
+                backgroundSize: '30px 30px',
+                maskImage: 'linear-gradient(to bottom, transparent, black 40%, black 60%, transparent)'
             }} 
        />
-       <canvas ref={canvasRef} className="w-full h-full absolute z-10" />
+       <canvas ref={canvasRef} className="w-full h-full absolute z-10 rounded-none" />
     </div>
   );
 };

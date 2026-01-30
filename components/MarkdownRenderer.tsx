@@ -36,37 +36,26 @@ const AlertIcon = ({ type }: { type: string }) => {
   }
 };
 
-/**
- * Custom Remark Plugin to parse GitHub Flavored Alerts (e.g., [!NOTE])
- * directly from the AST (Abstract Syntax Tree) before React rendering.
- */
 const remarkAlertsPlugin = () => {
   return (tree: any) => {
     const visit = (node: any) => {
       if (node.type === 'blockquote') {
-        // Check if the blockquote content starts with an alert tag
         if (node.children && node.children.length > 0 && node.children[0].type === 'paragraph') {
           const paragraph = node.children[0];
           if (paragraph.children && paragraph.children.length > 0 && paragraph.children[0].type === 'text') {
             const textNode = paragraph.children[0];
             const content = textNode.value;
-            // Regex to find [!NOTE], [!TIP], etc., case insensitive
             const match = content.match(/^\[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION|QUESTION)\]/i);
             
             if (match) {
               const alertType = match[1].toUpperCase();
-              
-              // Inject the alert type into the blockquote's data properties
-              // These will be available in the `node` prop of the custom component
               if (!node.data) node.data = {};
               if (!node.data.hProperties) node.data.hProperties = {};
               node.data.hProperties['data-alert-type'] = alertType;
 
-              // Remove the tag from the text content so it doesn't render
               const newText = content.replace(/^\[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION|QUESTION)\]\s*/i, '');
               
               if (!newText.trim()) {
-                // If text node is empty after removal, remove the node to avoid empty space
                 paragraph.children.shift();
               } else {
                 textNode.value = newText;
@@ -75,19 +64,15 @@ const remarkAlertsPlugin = () => {
           }
         }
       }
-
-      // Continue traversing
       if (node.children) {
         node.children.forEach((child: any) => visit(child));
       }
     };
-
     visit(tree);
   };
 };
 
 const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, className = '' }) => {
-  
   const sanitizedContent = useMemo(() => {
     return DOMPurify.sanitize(content);
   }, [content]);
@@ -97,10 +82,10 @@ const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, className 
       <ReactMarkdown
         remarkPlugins={[remarkGfm, remarkAlertsPlugin]}
         components={{
-          h1: ({ children }) => <h1 className="text-3xl md:text-4xl font-extrabold mt-12 mb-8 pb-4 border-b border-gray-700 text-white tracking-tight">{children}</h1>,
-          h2: ({ children }) => <h2 className="text-2xl md:text-3xl font-bold mt-10 mb-6 text-sky-50 border-b border-white/10 pb-2">{children}</h2>,
-          h3: ({ children }) => <h3 className="text-xl font-semibold mt-8 mb-4 text-sky-300">{children}</h3>,
-          h4: ({ children }) => <h4 className="text-lg font-medium mt-6 mb-3 text-gray-100">{children}</h4>,
+          h1: ({ children }) => <h1 className="text-3xl md:text-4xl font-extrabold mt-12 mb-8 pb-4 border-b border-gray-700 text-white tracking-tight rounded-none">{children}</h1>,
+          h2: ({ children }) => <h2 className="text-2xl md:text-3xl font-bold mt-10 mb-6 text-sky-50 border-b border-white/10 pb-2 rounded-none">{children}</h2>,
+          h3: ({ children }) => <h3 className="text-xl font-semibold mt-8 mb-4 text-sky-300 rounded-none">{children}</h3>,
+          h4: ({ children }) => <h4 className="text-lg font-medium mt-6 mb-3 text-gray-100 rounded-none">{children}</h4>,
           
           p: ({ children }) => <p className="mb-6 text-gray-300 leading-8 text-lg">{children}</p>,
           strong: ({ children }) => <strong className="font-bold text-sky-400">{children}</strong>,
@@ -111,7 +96,6 @@ const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, className 
           li: ({ children }) => <li className="pl-1">{children}</li>,
 
           blockquote: ({ node, children, ...props }: any) => {
-            // Retrieve the data injected by our remark plugin
             const alertType = node?.data?.hProperties?.['data-alert-type'];
 
             if (alertType) {
@@ -134,7 +118,7 @@ const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, className 
               };
 
               return (
-                <div className={`my-8 rounded-r-xl border-l-[6px] backdrop-blur-md ${styles[alertType] || styles.NOTE} overflow-hidden`}>
+                <div className={`my-8 rounded-none border-l-[6px] backdrop-blur-md ${styles[alertType] || styles.NOTE} overflow-hidden`}>
                   <div className="flex items-center gap-3 px-5 py-3 bg-black/20 border-b border-white/5">
                     <AlertIcon type={alertType} />
                     <span className="font-bold uppercase tracking-wider text-sm">{titles[alertType] || alertType}</span>
@@ -146,9 +130,8 @@ const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, className 
               );
             }
 
-            // Default blockquote
             return (
-              <blockquote className="border-l-4 border-gray-600 pl-6 py-3 my-8 bg-gray-800/30 italic text-gray-400 text-lg rounded-r-lg" {...props}>
+              <blockquote className="border-l-4 border-gray-600 pl-6 py-3 my-8 bg-gray-800/30 italic text-gray-400 text-lg rounded-none" {...props}>
                 {children}
               </blockquote>
             );
@@ -158,16 +141,16 @@ const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, className 
             const match = /language-(\w+)/.exec(className || '');
             const isInline = !match && !String(children).includes('\n');
             return isInline ? (
-              <code className="px-2 py-1 rounded-md bg-gray-800 text-pink-400 font-mono text-sm border border-white/10 shadow-sm" {...props}>
+              <code className="px-2 py-1 rounded-none bg-gray-800 text-pink-400 font-mono text-sm border border-white/10 shadow-sm" {...props}>
                 {children}
               </code>
             ) : (
-              <div className="my-8 rounded-xl overflow-hidden border border-white/10 bg-[#0d1117] shadow-2xl">
+              <div className="my-8 rounded-none overflow-hidden border border-white/10 bg-[#0d1117] shadow-2xl">
                  <div className="flex items-center px-4 py-3 bg-white/5 border-b border-white/5 justify-between">
                     <div className="flex gap-2">
-                        <div className="w-3 h-3 rounded-full bg-red-500/80"></div>
-                        <div className="w-3 h-3 rounded-full bg-yellow-500/80"></div>
-                        <div className="w-3 h-3 rounded-full bg-green-500/80"></div>
+                        <div className="w-3 h-3 rounded-none bg-red-500/80"></div>
+                        <div className="w-3 h-3 rounded-none bg-yellow-500/80"></div>
+                        <div className="w-3 h-3 rounded-none bg-green-500/80"></div>
                     </div>
                     {match && <span className="text-xs font-mono text-gray-500 uppercase tracking-wider">{match[1]}</span>}
                  </div>
@@ -184,8 +167,8 @@ const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, className 
           a: ({ href, children }) => <a href={href} target="_blank" rel="noopener noreferrer" className="text-sky-400 hover:text-sky-300 font-medium underline decoration-sky-400/30 underline-offset-4 transition-all hover:decoration-sky-300">{children}</a>,
           img: ({ src, alt }) => (
              <figure className="my-10 group">
-                <div className="overflow-hidden rounded-xl border border-white/10 shadow-2xl bg-black/20">
-                    <img src={src} alt={alt} className="w-full h-auto max-w-4xl mx-auto transform transition-transform duration-700 group-hover:scale-[1.02]" loading="lazy" />
+                <div className="overflow-hidden rounded-none border border-white/10 shadow-2xl bg-black/20">
+                    <img src={src} alt={alt} className="w-full h-auto max-w-4xl mx-auto transform transition-transform duration-700 group-hover:scale-[1.02] rounded-none" loading="lazy" />
                 </div>
                 {alt && <figcaption className="text-center text-sm text-gray-500 mt-3 italic">{alt}</figcaption>}
              </figure>

@@ -51,8 +51,10 @@ export const useCourseStore = () => {
 
   const deleteCourse = async (id: string) => {
     try {
-      // Using direct transaction call as db is now correctly typed
-      await db.transaction('rw', db.courses, db.chatSessions, async () => {
+      // Access transaction via any-cast to resolve "Property 'transaction' does not exist on type 'IDidataDB'"
+      // This ensures the Dexie transaction method is called regardless of interface inheritance resolution issues.
+      // Fix for Error in file hooks/useCourseStore.ts on line 55
+      await (db as any).transaction('rw', db.courses, db.chatSessions, async () => {
         // Delete the course
         await db.courses.delete(id);
         // Delete all chat sessions associated with this course

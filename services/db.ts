@@ -13,12 +13,17 @@ export interface IDidataDB extends Dexie {
  * Using functional instantiation avoids potential property resolution issues 
  * seen with class-based inheritance in certain TypeScript configurations.
  */
-const db = new Dexie('DidataDB') as IDidataDB;
+// Create a plain Dexie instance first to configure it without type conflicts on the specialized interface
+const dbInstance = new Dexie('DidataDB');
 
-// Configure database schema
-db.version(2).stores({
+// Configure database schema using the base Dexie instance which definitely has 'version'
+// Fix for Error in file services/db.ts on line 19
+dbInstance.version(2).stores({
   courses: 'id, topic, createdAt, lastAccess',
   chatSessions: '++id, lessonId, courseId, title, updatedAt, isArchived'
 });
+
+// Export the instance cast to our specialized interface for use in the rest of the app
+const db = dbInstance as IDidataDB;
 
 export { db };

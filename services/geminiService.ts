@@ -1,4 +1,3 @@
-
 import { GoogleGenAI, Type } from "@google/genai";
 import { Course } from '../types';
 
@@ -34,13 +33,8 @@ const courseSchema = {
   required: ["topic", "title", "description", "modules"],
 };
 
-/**
- * Helper to clean the response text from Markdown code blocks (```json ... ```)
- * which Gemini often includes even when instructed to return JSON.
- */
 const cleanJsonString = (text: string): string => {
   let clean = text.trim();
-  // Remove markdown code block syntax if present
   if (clean.startsWith('```json')) {
     clean = clean.replace(/^```json\n?/, '').replace(/\n?```$/, '');
   } else if (clean.startsWith('```')) {
@@ -51,14 +45,13 @@ const cleanJsonString = (text: string): string => {
 
 export const generateCourseFromText = async (text: string): Promise<Course | null> => {
   try {
-    // Initializing AI client inside the function to ensure the correct environment variables are captured
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-    const prompt = `Você é um Arquiteto Pedagógico de IA. Sua missão é analisar o texto fornecido e projetar a estrutura de um curso online. Você deve operar com base em princípios de Design Instrucional, como o modelo ADDIE e a Taxonomia de Bloom, para garantir uma jornada de aprendizado lógica e eficaz.
+    const prompt = `Você é um Arquiteto Pedagógico de IA do Rabelus Lab. Sua missão é analisar o texto fornecido e projetar a estrutura de um curso online seguindo a Lei Fundamental da Rigidez Pedagógica.
 
-Siga estas etapas:
-1.  **Análise:** Identifique os temas centrais, o público-alvo implícito e os principais objetivos de aprendizado contidos no texto.
-2.  **Design Estrutural:** Organize o conteúdo em uma hierarquia de Módulos e Aulas. A sequência deve seguir uma progressão de complexidade cognitiva, começando com conceitos fundamentais e avançando para tópicos mais aplicados ou complexos.
-3.  **Saída:** Gere um título de curso atraente, identifique o tópico principal, crie uma descrição concisa e a estrutura de módulos e aulas.
+Diretrizes:
+1.  **Análise SSOT:** Identifique o núcleo da verdade no texto.
+2.  **Arquitetura:** Módulos e Aulas devem seguir uma progressão técnica absoluta.
+3.  **Saída:** JSON rigoroso.
 
 Texto para análise:
 ---
@@ -79,7 +72,6 @@ ${text.substring(0, 30000)}
     const cleanedText = cleanJsonString(rawText);
     const jsonResponse = JSON.parse(cleanedText);
 
-    // Add unique IDs and initial content to the generated structure
     const courseWithIds: Course = {
       id: `course-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
       ...jsonResponse,
@@ -106,40 +98,16 @@ ${text.substring(0, 30000)}
 
 export const generateLessonContent = async (lessonTitle: string): Promise<string> => {
     try {
-        // Fresh AI instance for each generation task
         const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-        const prompt = `Você é o "Didata", uma IA geradora de conteúdo educacional de elite. Sua tarefa é criar um conteúdo de aula detalhado sobre: "${lessonTitle}".
+        const prompt = `Você é o "Didata", a SSOT de conteúdo educacional. Gere um conteúdo de aula denso, técnico e socrático para: "${lessonTitle}".
 
-**REGRAS OBRIGATÓRIAS DE FORMATAÇÃO DE ALERTAS:**
-
-Para Notas, Dicas, Avisos ou Reflexões, use a sintaxe de blockquote do GitHub.
-
-O formato deve ser ESTRITAMENTE este (com a quebra de linha OBRIGATÓRIA):
-
+**REGRAS DE FORMATAÇÃO DIDATA:**
+Use blockquotes para alertas estruturais:
 > [!NOTE]
-> Escreva o texto aqui na linha de baixo.
+> Nota técnica aqui.
 
-> [!TIP]
-> Dica aqui.
-
-> [!IMPORTANT]
-> Coisa importante.
-
-> [!WARNING]
-> Aviso de perigo.
-
-> [!QUESTION]
-> Pergunta reflexiva.
-
-**PROIBIDO:**
-NUNCA coloque o texto na mesma linha do marcador. 
-ERRADO: > [!NOTE] Texto
-CERTO: 
-> [!NOTE]
-> Texto
-
-**Conteúdo:**
-Seja profundo, didático e claro. Use Markdown padrão.`;
+**RIGOR GEOMÉTRICO:**
+Seja direto. Use Markdown preciso. Sem redundâncias.`;
         
         const response = await ai.models.generateContent({
             model: "gemini-3-pro-preview",
@@ -149,24 +117,22 @@ Seja profundo, didático e claro. Use Markdown padrão.`;
             }
         });
 
-        return response.text || "Erro ao gerar conteúdo.";
+        return response.text || "Falha na extração de dados.";
     } catch (error) {
-        console.error(`Error generating content for lesson "${lessonTitle}":`, error);
-        return "Ocorreu um erro ao gerar o conteúdo desta aula. Por favor, tente novamente.";
+        console.error(`Error generating lesson content:`, error);
+        return "Ocorreu um erro no pipeline de geração. Recarregue a matriz.";
     }
 };
 
 export const searchInLessonContent = async (query: string, content: string): Promise<string> => {
     try {
-        // Fresh AI instance for searching task
         const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-        const prompt = `Você é um assistente de estudos. Responda à busca "${query}" com base no conteúdo abaixo.
-Use o formato de alerta correto para o resumo:
-
+        const prompt = `Analise a base de conhecimento e extraia informações para a query: "${query}".
+Use o formato:
 > [!NOTE]
-> Resumo da resposta aqui.
+> Resumo extraído.
 
-Conteúdo:
+Base:
 ---
 ${content.substring(0, 20000)}
 ---
@@ -175,9 +141,9 @@ ${content.substring(0, 20000)}
             model: "gemini-3-flash-preview",
             contents: prompt,
         });
-        return response.text || "Nenhum resultado encontrado.";
+        return response.text || "Dados não localizados.";
     } catch (error) {
-        console.error(`Error searching in lesson content for query "${query}":`, error);
-        return "Desculpe, ocorreu um erro ao tentar pesquisar o conteúdo. Por favor, tente novamente.";
+        console.error(`Search error:`, error);
+        return "Erro no indexador neural.";
     }
 };
