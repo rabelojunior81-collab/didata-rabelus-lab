@@ -1,10 +1,9 @@
 
 import { useLiveQuery } from "dexie-react-hooks";
-import { db } from "../services/db";
+import { db, AppStateEntry } from "../services/db";
 import { Course, ChatSession } from "../types";
 
 export const useCourseStore = () => {
-  // useLiveQuery makes the component reactive to DB changes
   const savedCourses = useLiveQuery(
     () => db.courses.orderBy('lastAccess').reverse().toArray(),
     []
@@ -12,7 +11,6 @@ export const useCourseStore = () => {
 
   const addCourse = async (course: Course) => {
     try {
-      // Ensure timestamps are set
       const newCourse = {
         ...course,
         createdAt: course.createdAt || Date.now(),
@@ -30,7 +28,6 @@ export const useCourseStore = () => {
     try {
       const course = await db.courses.get(id);
       if (course) {
-        // Update lastAccess silently when loading
         await db.courses.update(id, { lastAccess: Date.now() });
       }
       return course;
@@ -51,13 +48,8 @@ export const useCourseStore = () => {
 
   const deleteCourse = async (id: string) => {
     try {
-      // Access transaction via any-cast to resolve "Property 'transaction' does not exist on type 'IDidataDB'"
-      // This ensures the Dexie transaction method is called regardless of interface inheritance resolution issues.
-      // Fix for Error in file hooks/useCourseStore.ts on line 55
       await (db as any).transaction('rw', db.courses, db.chatSessions, async () => {
-        // Delete the course
         await db.courses.delete(id);
-        // Delete all chat sessions associated with this course
         await db.chatSessions.where('courseId').equals(id).delete();
       });
     } catch (error) {
@@ -83,12 +75,32 @@ export const useCourseStore = () => {
     }
   };
 
+  const saveLastSession = async (courseId: string, lessonId: string | null) => {
+    try {
+      await db.appState.put({ key: 'lastSession', value: { courseId, lessonId } });
+    } catch (error) {
+      console.error("Error saving last session:", error);
+    }
+  };
+
+  const getLastSession = async (): Promise<{ courseId: string; lessonId: string | null } | null> => {
+    try {
+      const entry = await db.appState.get('lastSession');
+      return entry ? entry.value : null;
+    } catch (error) {
+      console.error("Error getting last session:", error);
+      return null;
+    }
+  };
+
   return {
-    savedCourses: savedCourses ?? [], // Always return array
+    savedCourses: savedCourses ?? [],
     addCourse,
     getCourse,
     updateCourse,
     deleteCourse,
-    exportCourse
+    exportCourse,
+    saveLastSession,
+    getLastSession
   };
 };

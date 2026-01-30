@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import DirectorDashboard from './components/DirectorDashboard';
 import CourseView from './components/CourseView';
@@ -11,9 +12,18 @@ import { useCourseStore } from './hooks/useCourseStore';
 const App: React.FC = () => {
   const [currentCourse, setCurrentCourse] = useState<Course | null>(null);
   const [selectedLessonId, setSelectedLessonId] = useState<string | null>(null);
-  const [currentSourceText, setCurrentSourceText] = useState('');
+  const [isInitialLoad, setIsInitialLoad] = useState(true);
   
-  const { savedCourses, addCourse, getCourse, updateCourse, deleteCourse, exportCourse } = useCourseStore();
+  const { 
+    savedCourses, 
+    addCourse, 
+    getCourse, 
+    updateCourse, 
+    deleteCourse, 
+    exportCourse,
+    saveLastSession,
+    getLastSession
+  } = useCourseStore();
 
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -26,25 +36,47 @@ const App: React.FC = () => {
     voiceName: 'Charon',
   });
 
-  // Load settings from localStorage (small data, fine to keep)
+  // Load settings and last session on mount
   useEffect(() => {
-    try {
-      const storedSettings = localStorage.getItem('intellicourse-settings');
-      if (storedSettings) {
-        setSettings(JSON.parse(storedSettings));
+    const init = async () => {
+      try {
+        const storedSettings = localStorage.getItem('didata-settings');
+        if (storedSettings) setSettings(JSON.parse(storedSettings));
+
+        const lastSession = await getLastSession();
+        if (lastSession && lastSession.courseId) {
+          const course = await getCourse(lastSession.courseId);
+          if (course) {
+            setCurrentCourse(course);
+            setSelectedLessonId(lastSession.lessonId);
+          }
+        }
+      } catch (error) {
+        console.error("Handshake failed:", error);
+      } finally {
+        setIsInitialLoad(false);
       }
-    } catch (error) {
-      console.error("Failed to load settings from localStorage", error);
-    }
+    };
+    init();
   }, []);
 
   useEffect(() => {
-    localStorage.setItem('intellicourse-settings', JSON.stringify(settings));
+    localStorage.setItem('didata-settings', JSON.stringify(settings));
   }, [settings]);
 
-  const handleCourseGenerated = (generatedCourse: Course, sourceText: string) => {
+  // Persist session change immediately
+  useEffect(() => {
+    if (!isInitialLoad) {
+      if (currentCourse) {
+        saveLastSession(currentCourse.id, selectedLessonId);
+      } else {
+        saveLastSession('', null);
+      }
+    }
+  }, [currentCourse?.id, selectedLessonId, isInitialLoad]);
+
+  const handleCourseGenerated = (generatedCourse: Course) => {
     setCurrentCourse(generatedCourse);
-    setCurrentSourceText(sourceText);
     setSelectedLessonId(null);
   };
 
@@ -59,10 +91,7 @@ const App: React.FC = () => {
   }, [currentCourse, addCourse]);
 
   const handleCourseUpdate = useCallback(async (updatedCourse: Course) => {
-    // Update local state immediate for UI responsiveness
     setCurrentCourse(updatedCourse);
-    
-    // Update DB if it exists there
     const exists = savedCourses.some(c => c.id === updatedCourse.id);
     if (exists) {
         await updateCourse(updatedCourse);
@@ -94,20 +123,14 @@ const App: React.FC = () => {
           alert("Por favor, selecione uma aula antes de pesquisar.");
           return;
       }
-
-      const lesson = currentCourse.modules
-          .flatMap(m => m.lessons)
-          .find(l => l.id === selectedLessonId);
-      
+      const lesson = currentCourse.modules.flatMap(m => m.lessons).find(l => l.id === selectedLessonId);
       if (!lesson || !lesson.content) {
           alert("O conteúdo da aula não está disponível para pesquisa.");
           return;
       }
-      
       setSearchQuery(query);
       setIsSearchOpen(true);
       setIsSearching(true);
-      
       const results = await searchInLessonContent(query, lesson.content);
       setSearchResults(results);
       setIsSearching(false);
@@ -116,6 +139,8 @@ const App: React.FC = () => {
   const isCurrentCourseSaved = useMemo(() => {
     return savedCourses.some(c => c.id === currentCourse?.id);
   }, [savedCourses, currentCourse]);
+
+  if (isInitialLoad) return null;
 
   return (
     <div className="min-h-screen bg-transparent text-gray-100 font-sans">
@@ -127,7 +152,6 @@ const App: React.FC = () => {
         onSearch={handleSearch}
         onOpenSettings={() => setIsSettingsOpen(true)}
       />
-      
       <SearchResultModal 
         isOpen={isSearchOpen} 
         onClose={() => setIsSearchOpen(false)} 
@@ -135,14 +159,12 @@ const App: React.FC = () => {
         results={searchResults}
         isSearching={isSearching}
       />
-      
       <SettingsModal 
         isOpen={isSettingsOpen}
         onClose={() => setIsSettingsOpen(false)}
         settings={settings}
         setSettings={setSettings}
       />
-
       <main className="h-screen pt-16">
         {currentCourse ? (
           <CourseView 

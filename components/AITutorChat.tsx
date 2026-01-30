@@ -1,4 +1,5 @@
-import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
+
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { GoogleGenAI, LiveServerMessage } from "@google/genai";
 import { Lesson, ChatMessage, Settings, ChatSession, Course } from '../types';
 import { db } from '../services/db';
@@ -20,6 +21,7 @@ const AITutorChat: React.FC<AITutorChatProps> = ({ lesson, course, settings }) =
   const [isConnecting, setIsConnecting] = useState(false);
   const [statusMessage, setStatusMessage] = useState('Conexão Neural Inativa');
   const [lastTranscript, setLastTranscript] = useState<string>('');
+  const [isHeartbeating, setIsHeartbeating] = useState(false);
   
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
   const [isMetadataModalOpen, setIsMetadataModalOpen] = useState(false);
@@ -27,7 +29,6 @@ const AITutorChat: React.FC<AITutorChatProps> = ({ lesson, course, settings }) =
 
   const { 
       startInput, 
-      stopInput, 
       playAudioChunk, 
       stopAudioPlayback, 
       resetAudioState,
@@ -43,10 +44,14 @@ const AITutorChat: React.FC<AITutorChatProps> = ({ lesson, course, settings }) =
   const activeAiMessageIdRef = useRef<number | null>(null);
   const currentAiResponseRef = useRef('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const prevLessonContentRef = useRef<string | null>(null);
 
-  useEffect(() => {
-    if (messages.length > 0 && lesson && course) {
-      const saveToDb = async () => {
+  // --- HEARTBEAT LOGIC: Persistence Layer ---
+  const persistCurrentState = useCallback(async () => {
+    if (!lesson || !course || messages.length === 0) return;
+    
+    setIsHeartbeating(true);
+    try {
         const sessionData: ChatSession = {
           id: currentSessionId || undefined,
           lessonId: lesson.id,
@@ -74,10 +79,37 @@ const AITutorChat: React.FC<AITutorChatProps> = ({ lesson, course, settings }) =
                 setCurrentSessionId(id.toString());
             }
         }
-      };
-      saveToDb();
+    } finally {
+        setTimeout(() => setIsHeartbeating(false), 800);
     }
   }, [messages, lesson, course, currentSessionId]);
+
+  // Periodic Heartbeat: Every 30 seconds
+  useEffect(() => {
+    const interval = setInterval(() => {
+      persistCurrentState();
+    }, 30000);
+    return () => clearInterval(interval);
+  }, [persistCurrentState]);
+
+  // Context Fluidity: Detect lesson content updates and inform the model
+  useEffect(() => {
+    if (lesson && isSessionActive && sessionPromiseRef.current) {
+        if (prevLessonContentRef.current && prevLessonContentRef.current !== lesson.content) {
+            // Content changed (e.g., regeneration). Update context without restart.
+            sessionPromiseRef.current.then(session => {
+                session.sendRealtimeInput({ 
+                    media: { 
+                        data: btoa("[SYSTEM: O conteúdo da aula foi atualizado ou regenerado. Por favor, utilize a nova versão como sua SSOT de agora em diante.]"), 
+                        mimeType: 'text/plain' 
+                    } 
+                });
+            });
+            setStatusMessage('Contexto Neural Atualizado');
+        }
+        prevLessonContentRef.current = lesson.content;
+    }
+  }, [lesson?.content, isSessionActive]);
 
   useEffect(() => {
     if (lesson) {
@@ -94,7 +126,7 @@ const AITutorChat: React.FC<AITutorChatProps> = ({ lesson, course, settings }) =
                 }
             });
     }
-  }, [lesson]);
+  }, [lesson?.id]);
 
   useEffect(() => {
     if (messagesEndRef.current) {
@@ -112,7 +144,8 @@ const AITutorChat: React.FC<AITutorChatProps> = ({ lesson, course, settings }) =
     setIsConnecting(false);
     setLastTranscript('');
     setStatusMessage(pausedMessage || 'Conexão Encerrada');
-  }, [resetAudioState]);
+    persistCurrentState(); // Save on exit
+  }, [resetAudioState, persistCurrentState]);
 
   useEffect(() => {
       if (audioError) {
@@ -184,6 +217,7 @@ const AITutorChat: React.FC<AITutorChatProps> = ({ lesson, course, settings }) =
                 activeUserMessageIdRef.current = null;
                 activeAiMessageIdRef.current = null;
                 currentAiResponseRef.current = '';
+                persistCurrentState(); // Instant save after thought conclusion
               }
 
               if (message.serverContent?.interrupted) {
@@ -211,7 +245,7 @@ const AITutorChat: React.FC<AITutorChatProps> = ({ lesson, course, settings }) =
           setStatusMessage('Erro na Matriz.');
           cleanUp();
       }
-  }, [cleanUp, isConnecting, isSessionActive, messages, settings.voiceName, startInput, playAudioChunk, stopAudioPlayback]);
+  }, [cleanUp, isConnecting, isSessionActive, messages, settings.voiceName, startInput, playAudioChunk, stopAudioPlayback, persistCurrentState]);
 
   const handleToggleSession = useCallback(() => {
     if (isSessionActive) {
@@ -228,14 +262,12 @@ const AITutorChat: React.FC<AITutorChatProps> = ({ lesson, course, settings }) =
 
   const handleArchiveSubmit = async (metadata: { title: string, version: string }) => {
       if (!currentSessionId || !lesson || !course) return;
-      
       await db.chatSessions.update(currentSessionId, {
           title: metadata.title,
           version: metadata.version,
           isArchived: true,
           updatedAt: Date.now()
       });
-      
       setMessages([]);
       setCurrentSessionId(null);
       setIsMetadataModalOpen(false);
@@ -253,8 +285,8 @@ const AITutorChat: React.FC<AITutorChatProps> = ({ lesson, course, settings }) =
               <div className="w-24 h-24 border-2 border-dashed border-gray-600 flex items-center justify-center mb-4 rounded-none">
                   <svg xmlns="http://www.w3.org/2000/svg" className="h-10 w-10 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.246 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" /></svg>
               </div>
-              <h3 className="text-xl font-bold text-gray-300 rounded-none">Terminal Geométrico</h3>
-              <p className="text-gray-500 mt-2 rounded-none">Selecione um módulo para iniciar o uplink socrático.</p>
+              <h3 className="text-xl font-bold text-gray-300">Terminal Geométrico</h3>
+              <p className="text-gray-500 mt-2">Selecione um módulo para iniciar o uplink socrático.</p>
           </div>
       );
   }
@@ -263,14 +295,19 @@ const AITutorChat: React.FC<AITutorChatProps> = ({ lesson, course, settings }) =
     <div className="flex flex-col h-full glass-module relative overflow-hidden border-none rounded-none">
       
       <div className="absolute top-0 left-0 right-0 z-20 p-4 flex justify-between items-center bg-gradient-to-b from-black/80 to-transparent pointer-events-none rounded-none">
-        <div>
-             <h3 className="text-sm font-bold text-sky-400 uppercase tracking-widest drop-shadow-md rounded-none">Didata SSOT</h3>
-             <p className="text-xs text-gray-400 font-mono rounded-none">{statusMessage}</p>
+        <div className="flex items-center gap-2">
+             <div className="flex flex-col">
+                <h3 className="text-sm font-bold text-sky-400 uppercase tracking-widest drop-shadow-md">Didata SSOT</h3>
+                <p className="text-[10px] text-gray-400 font-mono">{statusMessage}</p>
+             </div>
+             {isHeartbeating && (
+                <div className="w-1.5 h-1.5 bg-sky-400 animate-pulse rounded-full shadow-[0_0_8px_rgba(56,189,248,0.8)]"></div>
+             )}
         </div>
         <div className="flex items-center gap-2 pointer-events-auto rounded-none">
              <button 
                 onClick={() => setIsHistoryOpen(true)}
-                className="p-2 text-gray-400 hover:text-white transition-colors rounded-none"
+                className="p-2 text-gray-400 hover:text-white transition-colors"
                 title="Histórico de Sessões"
              >
                 <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
@@ -278,18 +315,18 @@ const AITutorChat: React.FC<AITutorChatProps> = ({ lesson, course, settings }) =
              {messages.length > 0 && (
                 <button 
                     onClick={handleArchiveSession}
-                    className="p-2 text-gray-400 hover:text-sky-400 transition-colors rounded-none"
+                    className="p-2 text-gray-400 hover:text-sky-400 transition-colors"
                     title="Arquivar Sessão Atual"
                 >
                     <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4" /></svg>
                 </button>
              )}
-             <div className={`w-3 h-3 rounded-none ${isSessionActive ? 'bg-green-500 shadow-[0_0_10px_#22c55e]' : 'bg-gray-600'}`}></div>
+             <div className={`w-3 h-3 ${isSessionActive ? 'bg-green-500 shadow-[0_0_10px_#22c55e]' : 'bg-gray-600'}`}></div>
         </div>
       </div>
 
       <div className="flex-grow relative bg-[#020408] flex flex-col rounded-none">
-        <div className="absolute inset-0 z-0 rounded-none">
+        <div className="absolute inset-0 z-0">
             <AudioVisualizer 
                 state={audioError ? 'error' : isConnecting ? 'connecting' : isSessionActive ? 'connected' : 'idle'}
                 isUserSpeaking={isUserSpeaking}
@@ -299,31 +336,31 @@ const AITutorChat: React.FC<AITutorChatProps> = ({ lesson, course, settings }) =
             />
         </div>
         
-        <div className="flex-grow z-10 flex flex-col justify-end pb-32 px-4 pointer-events-none rounded-none">
-            <div className="pointer-events-auto max-h-[60vh] overflow-y-auto space-y-3 pr-2 scrollbar-thin rounded-none" style={{ maskImage: 'linear-gradient(to bottom, transparent 0%, black 15%)' }}>
+        <div className="flex-grow z-10 flex flex-col justify-end pb-32 px-4 pointer-events-none">
+            <div className="pointer-events-auto max-h-[60vh] overflow-y-auto space-y-3 pr-2 scrollbar-thin" style={{ maskImage: 'linear-gradient(to bottom, transparent 0%, black 15%)' }}>
                 {messages.length === 0 && (
-                    <div className="text-center text-gray-700 text-[10px] uppercase tracking-[0.2em] opacity-40 py-24 font-mono rounded-none">Uplink Geométrico Disponível</div>
+                    <div className="text-center text-gray-700 text-[10px] uppercase tracking-[0.2em] opacity-40 py-24 font-mono">Uplink Geométrico Disponível</div>
                 )}
                 {messages.map((msg) => (
-                    <div key={msg.id} className={`flex ${msg.sender === 'user' ? 'justify-end' : 'justify-start'} rounded-none`}>
+                    <div key={msg.id} className={`flex ${msg.sender === 'user' ? 'justify-end' : 'justify-start'}`}>
                         <div className={`max-w-[85%] p-4 rounded-none text-sm leading-relaxed backdrop-blur-xl border shadow-2xl transition-all duration-500 animate-fade-in ${
                             msg.sender === 'user' 
                               ? 'bg-emerald-900/40 border-emerald-500/30 text-emerald-50' 
                               : 'bg-sky-900/40 border-sky-500/30 text-sky-50'
                         }`}>
                            {msg.text}
-                           <div className="text-[9px] opacity-30 mt-2 text-right font-mono rounded-none">
+                           <div className="text-[9px] opacity-30 mt-2 text-right font-mono">
                                 {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                            </div>
                         </div>
                     </div>
                 ))}
-                <div ref={messagesEndRef} className="rounded-none" />
+                <div ref={messagesEndRef} />
             </div>
         </div>
       </div>
 
-      <div className="absolute bottom-0 left-0 right-0 p-8 z-20 flex justify-center items-center bg-gradient-to-t from-black via-black/40 to-transparent rounded-none">
+      <div className="absolute bottom-0 left-0 right-0 p-8 z-20 flex justify-center items-center bg-gradient-to-t from-black via-black/40 to-transparent">
         <button
             onClick={handleToggleSession}
             disabled={isConnecting}
@@ -336,7 +373,7 @@ const AITutorChat: React.FC<AITutorChatProps> = ({ lesson, course, settings }) =
                 backdrop-blur-md
             `}
         >
-            <div className={`absolute inset-0 rounded-none border border-white/5 transition-transform duration-1000 ${isConnecting ? 'animate-ping' : 'scale-100'}`}></div>
+            <div className={`absolute inset-0 border border-white/5 transition-transform duration-1000 ${isConnecting ? 'animate-ping' : 'scale-100'}`}></div>
             
             {isConnecting ? (
                  <svg className="animate-spin h-10 w-10 text-white opacity-80" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
@@ -344,11 +381,11 @@ const AITutorChat: React.FC<AITutorChatProps> = ({ lesson, course, settings }) =
                     <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                  </svg>
             ) : isSessionActive ? (
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-10 w-10 text-red-100 drop-shadow-xl rounded-none" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-10 w-10 text-red-100 drop-shadow-xl" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M6 18L18 6M6 6l12 12" />
                 </svg>
             ) : (
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-10 w-10 text-sky-100 drop-shadow-xl group-hover:scale-110 transition-transform rounded-none" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-10 w-10 text-sky-100 drop-shadow-xl group-hover:scale-110 transition-transform" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3-3z" />
                 </svg>
             )}
